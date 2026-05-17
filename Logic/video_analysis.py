@@ -1,10 +1,12 @@
 '''Video Analysis Module'''
 
 import os
+import time
 import numpy as np
 import cv2
 
 from Logic.bot import Bot
+from Logic.input_executor import InputExecutor
 from Logic.Path.ball_path import BallPath
 from Logic.Detection.ball_colour import BallColour
 from Logic.Detection.ball_detection import BallDetection
@@ -171,6 +173,56 @@ class VideoAnalysis:
 
         if options.save_video:
             out.release()
+
+    def analyse_live(self, options):
+        '''
+        Captures the screen in real time using mss, detects ball positions,
+        finds the best shot via heuristic scoring, and executes it via mouse.
+        No display window — runs headlessly in the background.
+        '''
+        import mss
+
+        bot = Bot()
+        executor = InputExecutor()
+        last_shot_time = 0.0
+
+        with mss.mss() as sct:
+            if options.capture_region:
+                left, top, width, height = options.capture_region
+                monitor = {'left': left, 'top': top, 'width': width, 'height': height}
+            else:
+                monitor = sct.monitors[options.monitor_index]
+
+            capture_offset = (monitor['left'], monitor['top'])
+            print(f'[Live] Capturing region: {monitor}')
+
+            while True:
+                screenshot = sct.grab(monitor)
+                frame = np.array(screenshot)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+                if not bot.holes:
+                    bot.find_holes(frame)
+                    if bot.holes:
+                        print(f'[Live] Table found — {len(bot.holes)} holes detected.')
+                    continue
+
+                bot.find_balls(frame, options)
+
+                optimal_path = bot.find_optimal_path(options)
+                if not optimal_path:
+                    continue
+
+                now = time.time()
+                if (
+                    options.execute_shots
+                    and executor.available
+                    and len(optimal_path) >= 2
+                    and now - last_shot_time >= options.shot_delay
+                ):
+                    print(f'[Live] Executing shot: {optimal_path[0]} → {optimal_path[1]}')
+                    executor.execute_shot(optimal_path[0], optimal_path[1], capture_offset)
+                    last_shot_time = now
 
     @staticmethod
     def print_timestamp(frame_count):

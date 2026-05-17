@@ -7,6 +7,7 @@ from Logic.Path.ball_path import BallPath
 from Logic.Detection.ball_colour import BallColour
 from Logic.Detection.ball_detection import BallDetection
 from Logic.Detection.ball_classification import BallClassification
+from Logic.shot_scorer import ShotScorer
 
 
 class Bot:
@@ -18,6 +19,7 @@ class Bot:
     vector = Vectors()
     ball_detection = BallDetection()
     ball_classification = BallClassification()
+    shot_scorer = ShotScorer()
 
     def find_holes(self, frame):
         '''Responsible for finding the holes if not set'''
@@ -86,12 +88,16 @@ class Bot:
         return ball_colour
 
     def find_optimal_path(self, options):
-        '''Responsible for initiating the find optimal path method'''
+        '''
+        Return the best shot path.
 
-        optimal_path = []
-        all_objects = self.balls + self.holes
-
+        First tries the heuristic scorer (distance + angle alignment).
+        Falls back to pure Dijkstra if the scorer finds no valid shots.
+        '''
         ball_path = BallPath(self.balls, self.holes, options)
-        optimal_path = ball_path.find_path(options)
 
-        return optimal_path
+        ranked_path = ball_path.find_ranked_path(options, self.shot_scorer)
+        if ranked_path:
+            return ranked_path
+
+        return ball_path.find_path(options)
