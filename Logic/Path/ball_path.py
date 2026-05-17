@@ -50,6 +50,47 @@ class BallPath:
 
         return []
 
+    def find_ranked_path(self, options, scorer):
+        '''
+        Collect every geometrically valid shot, score each with scorer,
+        and return the path [white, hit_pos, target_ball, hole] for the
+        highest-ranked candidate. Falls back to [] if none are valid.
+        '''
+        if not self.white_index and self.white_index != 0:
+            return []
+        if not self.target_indices:
+            return []
+
+        white_2d = (self.white[0], self.white[1])
+        candidates = []
+
+        for hole_index, target_hole in enumerate(self.target_holes):
+            for target_index in self.target_indices:
+                target_ball = self.balls[target_index]
+                target_ball_2d = (target_ball[0], target_ball[1])
+
+                hit_position = self.get_target_hit_position(target_index, hole_index, options)
+                if hit_position is None:
+                    continue
+
+                if not self.is_path_valid(self.white, hit_position, [self.white_index, target_index], options):
+                    continue
+
+                if not self.is_possible_shot(self.white, target_ball, target_hole, options):
+                    continue
+
+                score = scorer.score_shot(white_2d, hit_position, target_ball_2d, target_hole)
+                candidates.append({
+                    'score': score,
+                    'path': [white_2d, hit_position, target_ball_2d, target_hole],
+                })
+
+        if not candidates:
+            return []
+
+        best = scorer.rank_shots(candidates)[0]
+        return best['path']
+
     def add_graph_edges(self, options):
         '''Populating the graph with valid edges'''
 

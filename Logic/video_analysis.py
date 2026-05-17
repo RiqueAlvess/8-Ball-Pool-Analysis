@@ -1,10 +1,12 @@
 '''Video Analysis Module'''
 
 import os
+import time
 import numpy as np
 import cv2
 
 from Logic.bot import Bot
+from Logic.input_executor import InputExecutor
 from Logic.Path.ball_path import BallPath
 from Logic.Detection.ball_colour import BallColour
 from Logic.Detection.ball_detection import BallDetection
@@ -171,6 +173,84 @@ class VideoAnalysis:
 
         if options.save_video:
             out.release()
+
+    def analyse_live(self, options):
+        '''
+        Captures the screen in real time using mss, runs the full detection +
+        path-finding pipeline on every frame, and optionally executes shots via
+        pyautogui.
+        '''
+        import mss
+
+        bot = Bot()
+        executor = InputExecutor()
+        last_shot_time = 0.0
+
+        with mss.mss() as sct:
+            if options.capture_region:
+                left, top, width, height = options.capture_region
+                monitor = {'left': left, 'top': top, 'width': width, 'height': height}
+            else:
+                monitor = sct.monitors[options.monitor_index]
+
+            capture_offset = (monitor['left'], monitor['top'])
+
+            frame_count = 0
+            while True:
+                frame_count += 1
+                if frame_count % options.skip_frame != 0:
+                    continue
+
+                screenshot = sct.grab(monitor)
+                frame = np.array(screenshot)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+                if not bot.holes:
+                    bot.find_holes(frame)
+
+                if not bot.holes:
+                    continue
+
+                modified_frame = frame.copy()
+                bot.find_balls(frame, options)
+
+                for hole in bot.holes:
+                    cv2.circle(modified_frame, (hole[0], hole[1]), 2, (255, 255, 255), 3)
+                    cv2.circle(modified_frame, (hole[0], hole[1]), options.hole_radius, (255, 255, 255), 3)
+
+                for ball in bot.balls:
+                    rgb_colour = None
+                    if ball[2] is BallColour.Solid:
+                        rgb_colour = (255, 0, 0)
+                    elif ball[2] is BallColour.Strip:
+                        rgb_colour = (0, 255, 0)
+                    elif ball[2] is BallColour.Black:
+                        rgb_colour = (255, 255, 0)
+                    elif ball[2] is BallColour.White:
+                        rgb_colour = (0, 255, 255)
+                    if rgb_colour is not None:
+                        cv2.circle(modified_frame, (ball[0], ball[1]), 2, (0, 0, 0), 3)
+                        cv2.circle(modified_frame, (ball[0], ball[1]), options.ball_radius, rgb_colour, 3)
+
+                optimal_path = bot.find_optimal_path(options)
+
+                for i, _ in enumerate(optimal_path[:-1]):
+                    cv2.line(modified_frame, optimal_path[i], optimal_path[i + 1], (0, 0, 0), 3)
+
+                now = time.time()
+                if (
+                    options.execute_shots
+                    and executor.available
+                    and len(optimal_path) >= 2
+                    and now - last_shot_time >= options.shot_delay
+                ):
+                    executor.execute_shot(optimal_path[0], optimal_path[1], capture_offset)
+                    last_shot_time = now
+
+                if options.show_video:
+                    cv2.imshow('Pool Bot - Live', modified_frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
 
     @staticmethod
     def print_timestamp(frame_count):
